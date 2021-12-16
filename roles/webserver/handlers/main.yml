@@ -1,0 +1,17 @@
+---
+# handlers
+- name: apache2-start
+  systemd:
+    name: "apache2"
+    enabled: yes
+    state: started
+- name: apache2-stop
+  systemd:
+    name: "apache2"
+    enabled: yes
+    state: stopped
+- name: apache2-restart
+  systemd:
+    name: "apache2"
+    enabled: yes
+    state: restarted

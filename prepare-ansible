@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# enable all export mode
+set -o allexport
+
+# user has to enter his DO Api Key
+echo -e "Enter your DigitalOcean API KEY: \c"
+read -r DO_KEY
+
+export DO_API_KEY=$DO_KEY
+export DO_API_TOKEN=$DO_KEY
+export ANSIBLE_HOST_KEY_CHECKING=false
+export ANSIBLE_REMOTE_USER=root
+export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+export ANSIBLE_COLOR_DEBUG=cyan
+
+set +o allexport
+
+# add DO API token to digitalocean role
+sed -i "s/api_token/$DO_KEY/g" roles/digitalocean/defaults/main.yml
+

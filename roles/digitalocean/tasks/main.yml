@@ -1,0 +1,75 @@
+---
+# Gather OS Specific Variables 
+- name: "Gather OS Specific Variables"
+  include_vars: "{{ item }}"
+  with_first_found:
+    - "../vars/{{ ansible_distribution }}-{{ ansible_distribution_version }}.yml"
+    - "../vars/{{ ansible_distribution }}-{{ ansible_distribution_release }}.yml"
+    - "../vars/{{ ansible_distribution }}.yml"
+    - "../vars/{{ ansible_os_family }}.yml"
+    - "../defaults/main.yml"
+  tags: ['digitalocean']
+
+# Add my ssh key to DigitalOcean account
+- name: "Add public ssh key to digitalocean account"
+  digital_ocean_sshkey:
+    name: "bogdan"
+    oauth_token: "{{ do_token }}"
+    ssh_pub_key: "{{lookup('file', '~/.ssh/id_ssh.pub') }}"
+    state: present
+  register: sshkey_result
+  tags: ['digitalocean', 'ssh']
+
+# Create droplet
+- name: Create droplets on region "{{ do_region }}"
+  digital_ocean_droplet:
+    oauth_token: "{{ do_token }}"
+    unique_name: yes
+    region: "{{ do_region }}"
+    image: "{{ do_image }}"
+    wait_timeout: "{{ wait_timeout }}"
+    name: "{{ item }}"
+    size_id: "{{ do_size }}"
+    ipv6: yes
+    state: present
+    ssh_keys: ["{{ sshkey_result.data.ssh_key.id }}"]
+    wait: yes
+  register: web_servers
+  with_items:
+    - "{{ do_name }}"
+  tags: ['digitalocean']
+
+# Add droplet to host group
+- name: "Add new droplet to host group"
+  local_action: add_host hostname={{ item.data.ip_address }} groupname=web_servers ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+  with_items: "{{ web_servers.results }}"
+  tags: ['digitalocean']
+
+# Wait for the droplet to be accesible via SSH
+- name: "Wait for droplet to start and check if we connect via ssh"
+  local_action: wait_for
+                host={{ item.data.ip_address }}
+                port=22
+                state=started
+  with_items: "{{ web_servers.results }}"
+  tags: ['digitalocean']
+
+# Check if server was already added to the inventory file
+- name: "Check if server was already added to the inventory file"
+  set_fact:
+    do_server: "{{ lookup('file', '{{ inventory_dir }}/hosts') }}"
+    ignore_errors: yes
+  tags: ['digitalocean']
+
+# Save droplet ip and hostname to inventory file
+- name: "Save droplet ip and hostname to inventory file"
+  become: yes
+  lineinfile:
+    path: "{{ inventory_dir }}/hosts"
+    regexp: '.*{{ item.data.droplet.name }}$'
+    insertafter: '^\[web_servers\]'
+    line: "{{ item.data.ip_address }} default_hostname={{ item.data.droplet.name }}"
+  with_items: "{{ web_servers.results }}"
+  when: item.data.ip_address not in do_server 
+  tags: ['digitalocean']
+  

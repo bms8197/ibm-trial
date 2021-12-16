@@ -1,0 +1,19 @@
+# default python interpreter
+ansible_python_interpreter: /usr/bin/python3
+
+# API token
+do_token: 'api_token'
+
+# droplet specs
+do_size: s-1vcpu-1gb
+do_region: nyc1
+do_image: ubuntu-20-04-x64
+
+# default ssh private key file
+ssh_private_key_file: "~/.ssh/id_ssh"
+
+# other
+wait_timeout: 500
+hosts: do_server
+connection: local
+gather_facts: false

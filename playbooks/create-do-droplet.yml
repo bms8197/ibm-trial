@@ -1,0 +1,9 @@
+---
+- hosts: all
+  roles:
+    - { role: roles/digitalocean, do_name: webserver1, become: yes, become_user: root, become_method: sudo }
+
+- hosts: web_servers
+  roles:
+    - { role: roles/webserver, become: yes, become_user: root, become_method: sudo }
+

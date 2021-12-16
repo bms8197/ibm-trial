@@ -1,0 +1,121 @@
+---
+- name: Gather OS Specific Variables
+  include_vars: "{{ item }}"
+  with_first_found:
+    - "../vars/{{ ansible_distribution }}-{{ ansible_distribution_version }}.yml"
+    - "../vars/{{ ansible_distribution }}-{{ ansible_distribution_release }}.yml"
+    - "../vars/{{ ansible_distribution }}.yml"
+    - "../vars/{{ ansible_os_family }}.yml"
+    - "../defaults/main.yml"
+  tags: ['webserver', 'hostname', 'restart']
+
+- name: "Disable timers for unattended upgrade, so that none will be triggered by the 'date -s' call"
+  raw: systemctl disable --now {{ item }}
+  with_items:
+    - 'apt-daily.timer'
+    - 'apt-daily-upgrade.timer'
+  tags: ['webserver', 'update']
+
+- name: "Reload systemctl daemon to apply the new changes"
+  systemd:
+    daemon_reload: yes
+  tags: ['webserver', 'update']
+
+- name: "Wait for any possibly running unattended upgrade to finish"
+  raw: systemd-run --property="After=apt-daily.service apt-daily-upgrade.service" --wait /bin/true
+  tags: ['webserver', 'update']
+
+- name: "Wait for /var/lib/dpkg/lock-frontend to be released"
+  shell: while lsof /var/lib/dpkg/lock-frontend ; do sleep 5; done;
+  tags: ['webserver', 'update']
+
+- name: "Update apt cache"
+  apt:
+    update_cache: yes
+  tags: ['webserver']
+
+- name: "Update all packages"
+  apt:
+    name: "*"
+    state: present
+  tags: ['webserver']
+
+- name: "Check if reboot is required after system upgrade"
+  shell: |
+    if [ -f /var/run/reboot-required ]; then
+      echo "needs reboot"
+    fi
+  register: reboot_required
+  tags: ['webserver']
+
+- name: "Reboot server after upgrade"
+  shell: "sleep 5 && reboot"
+  async: 1
+  poll: 0
+  when: reboot_required.stdout == "needs reboot"
+  register: reboot_started
+  ignore_errors: true
+  tags: ['webserver']
+
+- name: "Pause for 30 seconds, waiting server to reboot"
+  pause:
+    seconds: 30
+  when: reboot_required.stdout == "needs reboot"
+  tags: ['webserver']
+
+- name: "Check if {{ inventory_hostname }} responding to ssh"
+  local_action:
+    module: wait_for
+      host={{ inventory_hostname }}
+      delay=20
+      timeout=30
+      state=started
+  #when: reboot_started|changed
+  tags: ['webserver']
+
+- name: Install webserver
+  apt:
+    name: "{{ web_server }}"
+    state: present
+  tags: ['webserver']
+
+- name: Enable Apache2 service
+  systemd:
+    name: "{{ web_server }}"
+    enabled: yes
+    masked: no
+  tags: ['webserver']
+
+- name: Change the default web server port
+  template:
+    src: templates/ports.conf.j2
+    dest: /etc/apache2/ports.conf
+    owner: "{{ web_user }}"
+    group: "{{ web_group }}"
+    mode: 0640
+  tags: ['webserver']
+
+- name: Change port in the default vhost
+  template:
+    src: templates/000-default.conf.j2
+    dest: /etc/apache2/sites-enabled/000-default.conf
+    owner: "{{ web_user }}"
+    group: "{{ web_group }}"
+    mode: 0640
+  tags: ['webserver']
+
+- name: "Restart web service"
+  systemd:
+    name: "{{ web_server }}"
+    state: restarted
+    daemon_reload: yes
+  tags: ['webserver', 'restart']
+
+- name: Alter default index.html file to show hostname
+  template:
+    src: templates/index.html.j2
+    dest: /var/www/html/index.html
+    owner: "{{ web_user }}"
+    group: "{{ web_group }}"
+    mode: 0640
+  tags: ['webserver', 'hostname']
